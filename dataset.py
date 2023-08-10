@@ -7,7 +7,7 @@ import torch
 from random import shuffle
 from tqdm import tqdm
 import pickle
-import nltk
+
 
 # class Vocab(object):
 #   PAD = 0

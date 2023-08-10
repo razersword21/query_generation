@@ -5,8 +5,7 @@ from params import Params
 from model import BertMLPModel
 from tqdm import tqdm
 import pandas as pd
-import nltk
-import re
+
 
 def rad_csv(file_name):
     spenotation = "】【|(-/)）（"
