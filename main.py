@@ -67,40 +67,40 @@ def train(model,train_gen,p):
     del model
 
 def test(model,test_gen,p):
-    
-    model.eval()
-    # print(model)
-    # 使用 Adam Optim 更新整個分類模型的參數
-    model.load_state_dict(torch.load(p.model_PATH))
+    with torch.no_grad():
+        model.eval()
+        # print(model)
+        # 使用 Adam Optim 更新整個分類模型的參數
+        model.load_state_dict(torch.load(p.model_PATH))
 
-    acc,sum,recall,precision,pacc = 0,0,0,0,0
-    for data in tqdm(enumerate(test_gen),total=len(test_gen)):
-        tokens_tensors = data[1][0]
-        labels = data[1][1]
-        segments_tensors = torch.zeros_like(tokens_tensors)
-        masks_tensors = torch.ones_like(tokens_tensors)
-        # print(tokens_tensors,labels)
-        # forward pass
-        outputs_prob = model.predict(input_ids=tokens_tensors, 
-                        token_type_ids=segments_tensors, 
-                        attention_mask=masks_tensors)
-        for label_ind,labs in enumerate(labels):
-            for index , lab in enumerate(labs):
-                if index == 0:
-                    continue
-                else:
-                    if tokens_tensors[label_ind][index] != 102 or tokens_tensors[label_ind][index] != 0:
-                        sum += 1
-                        if outputs_prob[label_ind][index] >= 0.5 and lab == 1:
-                            acc += 1
-                            pacc+=1
-                        elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
-                            acc += 1
-                        if lab == 1:
-                            recall += 1
-                        if outputs_prob[label_ind][index] >= 0.5:
-                            precision += 1
-    del model
+        acc,sum,recall,precision,pacc = 0,0,0,0,0
+        for data in tqdm(enumerate(test_gen),total=len(test_gen)):
+            tokens_tensors = data[1][0]
+            labels = data[1][1]
+            segments_tensors = torch.zeros_like(tokens_tensors)
+            masks_tensors = torch.ones_like(tokens_tensors)
+            # print(tokens_tensors,labels)
+            # forward pass
+            outputs_prob = model.predict(input_ids=tokens_tensors, 
+                            token_type_ids=segments_tensors, 
+                            attention_mask=masks_tensors)
+            for label_ind,labs in enumerate(labels):
+                for index , lab in enumerate(labs):
+                    if index == 0:
+                        continue
+                    else:
+                        if tokens_tensors[label_ind][index] != 102 or tokens_tensors[label_ind][index] != 0:
+                            sum += 1
+                            if outputs_prob[label_ind][index] >= 0.5 and lab == 1:
+                                acc += 1
+                                pacc+=1
+                            elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
+                                acc += 1
+                            if lab == 1:
+                                recall += 1
+                            if outputs_prob[label_ind][index] >= 0.5:
+                                precision += 1
+        del model
     print("Test state : ")
     print("Accuracy : %.2f %%" % ((acc / sum *100) ,))
     r = (pacc / recall *100)
