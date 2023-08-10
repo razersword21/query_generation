@@ -15,8 +15,8 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def predict_label_size(predict_label):
           
-    predict_label = predict_label[:, :, -1]
-    predict_label = predict_label[:,1:-1]
+    predict_label = predict_label[:, :, -1] #刪除最後一個column
+    predict_label = predict_label[:,1:-1] #刪除其中cls和最後一個pad標籤 使形狀與labels一致
     return predict_label
 
 def train(model,train_gen,p):
@@ -87,35 +87,38 @@ def test(model,test_gen,p):
             labels = data[1][1]
             segments_tensors = torch.zeros_like(tokens_tensors)
             masks_tensors = torch.ones_like(tokens_tensors)
-            # for bi,batch_data in enumerate(tokens_tensors):
-            #     for wi,w in enumerate(batch_data):
-            #         if w == 0:
-            #             masks_tensors[bi][wi] = 0
-            # print(tokens_tensors,labels)
-            # forward pass
+            for bi,batch_data in enumerate(tokens_tensors):
+                for wi,w in enumerate(batch_data):
+                    if w == 0:
+                        masks_tensors[bi][wi] = 0
+            # print(tokens_tensors[0])
+
+            # test predict prob
             outputs_prob = model(input_ids=tokens_tensors, 
                             token_type_ids=segments_tensors, 
                             attention_mask=masks_tensors)
             
             #將預測機率轉成label
+            outputs_prob = predict_label_size(outputs_prob)
             for label_ind,labs in enumerate(labels):
                 for index , lab in enumerate(labs):
-                    if tokens_tensors[label_ind][index+1] != 102 or tokens_tensors[label_ind][index+1] != 0:
+                    #確保不是cls,sep,pad
+                    if tokens_tensors[label_ind][index] != 101 or tokens_tensors[label_ind][index] != 102 or tokens_tensors[label_ind][index] != 0:
                         sum += 1
-                        if outputs_prob[label_ind][index+1] >= 0.5 and lab == 1:
-                            acc += 1
-                            pacc+=1
-                        elif outputs_prob[label_ind][index+1] < 0.5 and lab == 0:
+                        if outputs_prob[label_ind][index] >= 0.5 :
+                            precision += 1
+                            if lab == 1:
+                                acc += 1
+                                pacc+=1
+                        elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
                             acc += 1
                         if lab == 1:
-                            recall += 1
-                        if outputs_prob[label_ind][index+1] >= 0.5:
-                            precision += 1
+                            recall += 1                            
         del model
-    print(labels.size(),outputs_prob.size())
+    
     print("Test state : ")
     print("Accuracy : %.2f %%" % ((acc / sum *100) ,))
-    print(acc , sum)
+    # print(acc , sum)
     r = (pacc / recall *100)
     p = (pacc / precision *100)
     print("F1-score : %.2f %%" % ((2*p*r/(p+r)),) )

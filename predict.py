@@ -70,7 +70,7 @@ def query_generator(p,token_title_ids,title_list):
             token_type_ids = torch.zeros_like(tokens_tensors).view(1,len(tensor_data))
             attention_mask = torch.ones_like(tokens_tensors).view(1,len(tensor_data))
             
-            predict_prob = model.predict(tokens_tensors,token_type_ids,attention_mask)
+            predict_prob = model(tokens_tensors,token_type_ids,attention_mask)
 
             # if temp_count == 0:
             #     print(tokens_tensors.size(),"predict_prob size",predict_prob.size())

@@ -95,8 +95,6 @@ class BertMLPModel(nn.Module):
         # print(loss)
         return loss
     
-
-
 class MutitaskModel(nn.Module):
     def __init__(self, PRETRAINED_MODEL_NAME, num_labels=1,lstm_layers=1):
         super(MutitaskModel, self).__init__()
