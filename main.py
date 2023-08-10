@@ -8,7 +8,9 @@ from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from sklearn.model_selection import train_test_split
 import os
+import numpy as np
 
+np.seterr(invalid='ignore')
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def predict_label_size(predict_label):
@@ -35,6 +37,11 @@ def train(model,train_gen,p):
             labels = data[1][1].to(DEVICE)
             segments_tensors = torch.zeros_like(tokens_tensors).to(DEVICE)
             masks_tensors = torch.ones_like(tokens_tensors).to(DEVICE)
+            for bi,batch_data in enumerate(tokens_tensors):
+                for wi,w in enumerate(batch_data):
+                    if w == 0:
+                        masks_tensors[bi][wi] = 0
+            
             # print(tokens_tensors,labels)
             # 將參數梯度歸零
             optimizer.zero_grad()
@@ -67,11 +74,12 @@ def train(model,train_gen,p):
     del model
 
 def test(model,test_gen,p):
+    
+    model.load_state_dict(torch.load(p.model_PATH))
     with torch.no_grad():
         model.eval()
         # print(model)
         # 使用 Adam Optim 更新整個分類模型的參數
-        model.load_state_dict(torch.load(p.model_PATH))
 
         acc,sum,recall,precision,pacc = 0,0,0,0,0
         for data in tqdm(enumerate(test_gen),total=len(test_gen)):
@@ -79,30 +87,35 @@ def test(model,test_gen,p):
             labels = data[1][1]
             segments_tensors = torch.zeros_like(tokens_tensors)
             masks_tensors = torch.ones_like(tokens_tensors)
+            # for bi,batch_data in enumerate(tokens_tensors):
+            #     for wi,w in enumerate(batch_data):
+            #         if w == 0:
+            #             masks_tensors[bi][wi] = 0
             # print(tokens_tensors,labels)
             # forward pass
-            outputs_prob = model.predict(input_ids=tokens_tensors, 
+            outputs_prob = model(input_ids=tokens_tensors, 
                             token_type_ids=segments_tensors, 
                             attention_mask=masks_tensors)
+            
+            #將預測機率轉成label
             for label_ind,labs in enumerate(labels):
                 for index , lab in enumerate(labs):
-                    if index == 0:
-                        continue
-                    else:
-                        if tokens_tensors[label_ind][index] != 102 or tokens_tensors[label_ind][index] != 0:
-                            sum += 1
-                            if outputs_prob[label_ind][index] >= 0.5 and lab == 1:
-                                acc += 1
-                                pacc+=1
-                            elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
-                                acc += 1
-                            if lab == 1:
-                                recall += 1
-                            if outputs_prob[label_ind][index] >= 0.5:
-                                precision += 1
+                    if tokens_tensors[label_ind][index+1] != 102 or tokens_tensors[label_ind][index+1] != 0:
+                        sum += 1
+                        if outputs_prob[label_ind][index+1] >= 0.5 and lab == 1:
+                            acc += 1
+                            pacc+=1
+                        elif outputs_prob[label_ind][index+1] < 0.5 and lab == 0:
+                            acc += 1
+                        if lab == 1:
+                            recall += 1
+                        if outputs_prob[label_ind][index+1] >= 0.5:
+                            precision += 1
         del model
+    print(labels.size(),outputs_prob.size())
     print("Test state : ")
     print("Accuracy : %.2f %%" % ((acc / sum *100) ,))
+    print(acc , sum)
     r = (pacc / recall *100)
     p = (pacc / precision *100)
     print("F1-score : %.2f %%" % ((2*p*r/(p+r)),) )
@@ -155,7 +168,8 @@ if __name__ == "__main__":
     vocab = dataset.build_vocab()
 
     model = BertMLPModel(p.PRETRAINED_MODEL_NAME,num_labels=1)
-    train_data, test_data = train_test_split(dataset, train_size=0.8)
+    train_data, test_data = train_test_split(dataset,random_state = 27, train_size=0.8)
+    # print(train_data[0],test_data[0])
     
     if p.status == "train":
         #清除checkpoint 裡的模型參數檔

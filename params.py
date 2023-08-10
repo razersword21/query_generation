@@ -5,7 +5,7 @@ class Params:
     file_path: str = "LESD4EC_L/LESD4EC_L"
     file_name: str = 'product_export_tw_2023-08-01.csv'
     model_PATH:str = 'checkpoints/bert_bilstm_best_model.pt'
-    status:str = "train"
+    status:str = "test"
 
     # vocab_size : int = 30000
     batch_size: int = 8
@@ -14,8 +14,9 @@ class Params:
     lr: float = 0.00001
     hidden_dropout_prob : float = 0.1
     hidden_size : int = 768 # fit bert
-    lstm_hidden : int = 64
-    mlp_hidden : int = 128
+    lstm_hidden : int = 128
+    mlp_hidden : int = 256
+    attention_hidden: int = 128
     num_layers : int = 2
     
     PRETRAINED_MODEL_NAME : str = "bert-base-chinese"
@@ -24,5 +25,6 @@ class Params:
 
     if_fine_tune: bool = False
     del_checkpoint: bool = True
+    is_attention_: bool = True
     model_path_prefix: Optional[str] = 'checkpoints/'
     
