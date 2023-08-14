@@ -143,7 +143,7 @@ class Dataset(object):
     with open(filename,encoding="utf-8") as f:
       
       for i, line in tqdm(enumerate(f),total= num_lines):
-        if i == 100:
+        if i == 1000:
           break
         word_pieces = ["[CLS]"]
         
@@ -164,22 +164,26 @@ class Dataset(object):
 
         if self.p.is_bert_model:
           new_label = []
+          title = convertor(title)
           title = self.tokenizer.tokenize(title)
           word_pieces += title + ["[SEP]"]
           title_ids = self.tokenizer.convert_tokens_to_ids(word_pieces)
           title_ids = torch.tensor(title_ids)
+          # new_label.append(0)
           for index , wordphrase in enumerate(blank_list):
             for w in self.tokenizer.tokenize(wordphrase):
               if label[index] > 0:
                 new_label.append(1)
               else:
                 new_label.append(0)
+          # new_label.append(0)
           label = torch.tensor(new_label)
+          # print(word_pieces,label)
           src_len = len(title_ids)  # +sep or +eos
           tgt_len = len(label)
           self.src_len = max(self.src_len, src_len)
           self.tgt_len = max(self.tgt_len, tgt_len)
-
+          
           self.pairs.append(Example(title_ids, label, src_len, tgt_len))
         else:
           sos = []
@@ -252,6 +256,7 @@ class Dataset(object):
           vocab.add_words(example.src)
         vocab.trim(vocab_size=vocab_size)
         print("%d words." % len(vocab))
+        print(vocab)
         torch.save(vocab, filename)
     
       return vocab

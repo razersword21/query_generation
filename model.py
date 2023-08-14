@@ -1,4 +1,4 @@
-from transformers import BertModel
+from transformers import BertModel,BertForTokenClassification
 import torch.nn as nn
 from params import Params
 import torch
@@ -10,7 +10,7 @@ class BiLSTM(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.lstm = nn.LSTM(
-            input_size, hidden_size, num_layers, batch_first=True, bidirectional=True,dropout=0.1
+            input_size, hidden_size, num_layers, batch_first=True, bidirectional=True,dropout=0.2
         )
 
     def forward(self, x):
@@ -24,9 +24,9 @@ class selfattention(nn.Module):
     def __init__(self):
         super(selfattention, self).__init__()
         self.p = Params()
-        self.q_w = nn.Linear(self.p.mlp_hidden,self.p.attention_hidden)
-        self.k_w = nn.Linear(self.p.mlp_hidden,self.p.attention_hidden)
-        self.v_w = nn.Linear(self.p.mlp_hidden,self.p.attention_hidden)
+        self.q_w = nn.Linear(self.p.hidden_size,self.p.attention_hidden)
+        self.k_w = nn.Linear(self.p.hidden_size,self.p.attention_hidden)
+        self.v_w = nn.Linear(self.p.hidden_size,self.p.attention_hidden)
         self.softmax = nn.Softmax(-1)
 
     def forward(self,input,attention_mask):
@@ -46,25 +46,28 @@ class selfattention(nn.Module):
         ...
 class BertMLPModel(nn.Module):
     
-    def __init__(self, PRETRAINED_MODEL_NAM ,vocab, num_labels=1):
+    def __init__(self, PRETRAINED_MODEL_NAM ,vocab, num_labels=2):
         super(BertMLPModel, self).__init__()
         self.p = Params()
         self.num_labels = num_labels
         self.vocab = vocab
-        self.vocab_size = len(vocab)
+        # self.vocab_size = len(vocab)
         if self.p.is_bert_model:
+            # configuration = BertConfig(num_labels=1)
             self.bert = BertModel.from_pretrained(PRETRAINED_MODEL_NAM)  # 載入預訓練 BERT
+            # self.bert = BertForTokenClassification.from_pretrained(PRETRAINED_MODEL_NAM,num_labels=1)
         else:
             self.embedding = nn.Embedding(self.vocab_size, self.p.hidden_size, padding_idx=vocab.PAD)
         self.bilstm = BiLSTM(self.p.hidden_size,self.p.lstm_hidden,self.p.num_layers)
         self.dropout = nn.Dropout(self.p.hidden_dropout_prob)
-        
+        self.BatchNormlayer = nn.BatchNorm1d(self.p.mlp_hidden)
         self.selfattention = selfattention()
         
         # 簡單 linear 層
         self.mlp = nn.Linear(self.p.mlp_hidden, num_labels)
+
         self.sigmoid = nn.Sigmoid()
-        self.loss = nn.BCELoss()
+        # self.loss = nn.BCELoss()
 
     def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
         # BERT 輸入就是 tokens
@@ -74,16 +77,21 @@ class BertMLPModel(nn.Module):
         else:
             hidden_state = self.embedding(input_ids)
         # print("BERT model output size...",hidden_state.size())#[batch size,seq len,bert embedd(768)]
-        lstm_out,_,_ = self.bilstm(hidden_state)
+        # lstm_out,_,_ = self.bilstm(hidden_state)
         # 轉成字要不要留下來的機率值
-        
+        # lstm_out = lstm_out.transpose(1,2)
         # print("Bi-LSTM model output size...",lstm_out.size())#[batch size,seq len,2*lstm embedd]
+        drop_out = self.dropout(hidden_state)
         if self.p.is_attention_:
-            lstm_out,_ = self.selfattention(lstm_out,attention_mask)
-
-        logits = self.mlp(lstm_out)
-        drop_out = self.dropout(logits)
-        predict_label = self.sigmoid(drop_out)
+            atten_out,_ = self.selfattention(drop_out,attention_mask)
+            # lstm_out,_ = self.selfattention(lstm_out,attention_mask)
+            logits = self.mlp(atten_out)
+        # bn_out = self.BatchNormlayer(lstm_out)
+        # bn_out = bn_out.transpose(1,2)
+        else:
+            logits = self.mlp(drop_out)
+        
+        predict_label = self.sigmoid(logits)
         
         # print("predict_label prob output size...",predict_label.size(),labels.size())#[batch size,seq len,label]
         # 回傳各個字的 predict_label 機率值

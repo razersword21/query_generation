@@ -28,34 +28,44 @@ def train(model,train_gen,p,vocab):
     optimizer = torch.optim.Adam(model.parameters(), p.lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
     criti = nn.BCELoss()
+    test_critition = nn.CrossEntropyLoss()
     best_loss = 99.9
     best_model = False
     epochs = p.n_epochs  
     for epoch in range(epochs):
         running_loss,batch_c = 0.0,0
         if p.is_bert_model:
-            print("Train BERT+Bi-LSTM+MLP model ...")
-            for data in tqdm(enumerate(test_gen),total=len(test_gen)):
+            
+            for data in tqdm(enumerate(train_gen),total=len(train_gen)):
                 tokens_tensors = data[1][0].to(DEVICE)
                 labels = data[1][1].to(DEVICE)
                 segments_tensors = torch.zeros_like(tokens_tensors).to(DEVICE)
                 masks_tensors = torch.ones_like(tokens_tensors).to(DEVICE)
                 for bi,batch_data in enumerate(tokens_tensors):
                     for wi,w in enumerate(batch_data):
-                        if w == 0:
+                        if w == 0 or w == 101 or w == 102:
                             masks_tensors[bi][wi] = 0
                 # print(tokens_tensors[0])
-
+                optimizer.zero_grad()
                 # test predict prob
                 outputs = model(input_ids=tokens_tensors, 
                                 token_type_ids=segments_tensors, 
                                 attention_mask=masks_tensors)
+                # loss = criti(predict_label_size(p,outputs),labels.float())
+                # print(outputs.size())
+                loss = test_critition(predict_label_size(p,outputs),labels.float())
+                # backward
+                loss.backward()
+                optimizer.step()
                 
+            # 累計當前 batch loss
+                running_loss += loss.item()
+            scheduler.step(running_loss)
                 #將預測機率轉成label
-                running_loss = running_loss/len(train_gen)
+            running_loss = running_loss/len(train_gen)
             scheduler.step(running_loss)
             print('[epoch %d] loss: %.3f' %(epoch + 1, running_loss))
-
+            print(optimizer.state_dict()['param_groups'][0]['lr'])
             if running_loss < best_loss:
                 best_model = True
                 best_loss = running_loss
@@ -65,12 +75,12 @@ def train(model,train_gen,p,vocab):
             save_models(p,model,optimizer,epoch,running_loss,p.if_fine_tune,best_model)
                                             
         else:
-            print("Train Embedding+Bi-LSTM+MLP model ...")
+            
             batch = next(train_gen)
             batch_c +=1
             input_tensor = batch.input_tensor.to(DEVICE)
             labels = batch.label_tensor.to(DEVICE)
-            
+            optimizer.zero_grad()
             masks_tensors = torch.ones_like(input_tensor).to(DEVICE)
             for bi,batch_data in enumerate(input_tensor):
                     for wi,w in enumerate(batch_data):
@@ -101,8 +111,10 @@ def train(model,train_gen,p,vocab):
     del model
 
 def test(model,test_gen,p,vocab):
-    
+    # import os
+    # print(os.getcwd())
     model.load_state_dict(torch.load(p.model_PATH), strict=False)
+    model.to(DEVICE)
     with torch.no_grad():
         model.eval()
         # print(model)
@@ -112,10 +124,10 @@ def test(model,test_gen,p,vocab):
         if p.is_bert_model:
             print("Test BERT+Bi-LSTM+MLP model ...")
             for data in tqdm(enumerate(test_gen),total=len(test_gen)):
-                tokens_tensors = data[1][0]
-                labels = data[1][1]
-                segments_tensors = torch.zeros_like(tokens_tensors)
-                masks_tensors = torch.ones_like(tokens_tensors)
+                tokens_tensors = data[1][0].to(DEVICE)
+                labels = data[1][1].to(DEVICE)
+                segments_tensors = torch.zeros_like(tokens_tensors).to(DEVICE)
+                masks_tensors = torch.ones_like(tokens_tensors).to(DEVICE)
                 for bi,batch_data in enumerate(tokens_tensors):
                     for wi,w in enumerate(batch_data):
                         if w == 0:
@@ -204,12 +216,12 @@ def create_mini_batch(samples):
 def save_models(p, models,optimizer, epoch,loss,if_fine_tune,best_model):
     
     if p.is_bert_model:
-        file_prefix = 'bert+bi-lstm'
+        file_prefix = 'bert_tozhant'
     else:
-        file_prefix = 'w2v+bi-lstm'
+        file_prefix = 'w2v+bilstm'
     if not if_fine_tune:
         try:
-            if best_model == True:
+            if best_model == True:#bert+bilstm_best_model
                 torch.save(models.state_dict(), p.model_path_prefix+file_prefix+'_best_model.pt')
             torch.save(models.state_dict(), p.model_path_prefix+file_prefix+'_%.2f_epoch%d.pt'% (loss, (epoch+1)))
         except Exception as e:
