@@ -80,14 +80,17 @@ def query_generator(p,token_title_ids,v,title_list,token_title):
     # print(model)
         with torch.no_grad():
             model.eval()
-            print("[Test state (BERT)] Comperss product title into shorter ...")
+            print("[Presict state (BERT)] Comperss product title into shorter ...")
             shorter_title_list = []
 
             for token_title_index,tensor_data in tqdm(enumerate(token_title_ids),total=len(token_title_ids)):
                 tokens_tensors = torch.tensor(tensor_data).view(1,len(tensor_data))
                 token_type_ids = torch.zeros_like(tokens_tensors).view(1,len(tensor_data))
                 attention_mask = torch.ones_like(tokens_tensors).view(1,len(tensor_data))
-                
+                for bi,batch_data in enumerate(tokens_tensors):
+                    for wi,w in enumerate(batch_data):
+                        if w == 0 :
+                            attention_mask[bi][wi] = 0
                 predict_prob = model(tokens_tensors,token_type_ids,attention_mask)
 
                 # if temp_count == 0:
@@ -145,10 +148,10 @@ def query_generator(p,token_title_ids,v,title_list,token_title):
         model.load_state_dict(torch.load(p.model_PATH), strict=False) 
         with torch.no_grad():
             model.eval()
-            print("[Test state (Embedding)] Comperss product title into shorter ...")
+            print("[Predict state (Embedding)] Comperss product title into shorter ...")
             shorter_title_list = []
             for token_title_index,tensor_data in tqdm(enumerate(token_title_ids),total=len(token_title_ids)):
-                print(tensor_data,token_title[token_title_index],v['<EOS>'],v['<SOS>'],v['<UNK>'],v['<PAD>'],vocab.UNK,vocab.PAD,vocab.SOS,vocab.EOS)
+                # print(tensor_data,token_title[token_title_index],v['<EOS>'],v['<SOS>'],v['<UNK>'],v['<PAD>'],vocab.UNK,vocab.PAD,vocab.SOS,vocab.EOS)
                 tokens_tensors = torch.tensor(tensor_data).view(1,len(tensor_data))
                 attention_mask = torch.ones_like(tokens_tensors).view(1,len(tensor_data))
                 
@@ -156,9 +159,6 @@ def query_generator(p,token_title_ids,v,title_list,token_title):
                 shorter_title = ""
                 predict_prob = predict_prob[-1,: ]
 
-                unk_index = 0
-                unk_token_list = []
-                unk_token = ""
                 # print(title_list[token_title_index]) #聲寶 SAMPO ECSA05HT 聲寶 手持充電吸塵器 
                 
                 for index , prob in enumerate(predict_prob):
@@ -186,6 +186,7 @@ if __name__ == "__main__":
     p = Params()
     dataset = Dataset(p.file_path)
     vocab = dataset.build_vocab(p.vocab_size)
+    # vocab = None
     title_list,query_list = rad_csv(p.file_name)
     
     token_title_ids,token_title = tokenizer(p,title_list,vocab)
@@ -198,4 +199,4 @@ if __name__ == "__main__":
         "query" : query_list,
         "compress result" : shorter_title_list
     })
-    my_df.to_csv('comperss result.csv', columns=columns,index=False, header=False,encoding="utf_8_sig")
+    my_df.to_csv('(Bert)comperss result.csv', columns=columns,index=False, header=False,encoding="utf_8_sig")

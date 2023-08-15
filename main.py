@@ -4,6 +4,7 @@ import torch.nn as nn
 from model import BertMLPModel
 from tqdm import tqdm
 from dataset import Dataset
+from big_corpus_dataset import big_corpus_Dataset
 from torch.utils.data import DataLoader
 from torch.nn.utils.rnn import pad_sequence
 from sklearn.model_selection import train_test_split
@@ -15,7 +16,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 def predict_label_size(p,predict_label):
           
-    predict_label = predict_label[:, :, -1] #刪除最後一個column
+    predict_label = predict_label[:, :, -1] #刪除最後一個column 若num labels = 2 則不用這行
     if p.is_bert_model:
         predict_label = predict_label[:,1:-1] #刪除其中cls和最後一個pad標籤 使形狀與labels一致
     return predict_label
@@ -27,8 +28,8 @@ def train(model,train_gen,p,vocab):
     # 使用 Adam Optim 更新整個分類模型的參數
     optimizer = torch.optim.Adam(model.parameters(), p.lr)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+    
     criti = nn.BCELoss()
-    test_critition = nn.CrossEntropyLoss()
     best_loss = 99.9
     best_model = False
     epochs = p.n_epochs  
@@ -43,7 +44,7 @@ def train(model,train_gen,p,vocab):
                 masks_tensors = torch.ones_like(tokens_tensors).to(DEVICE)
                 for bi,batch_data in enumerate(tokens_tensors):
                     for wi,w in enumerate(batch_data):
-                        if w == 0 or w == 101 or w == 102:
+                        if w == 0:
                             masks_tensors[bi][wi] = 0
                 # print(tokens_tensors[0])
                 optimizer.zero_grad()
@@ -51,9 +52,9 @@ def train(model,train_gen,p,vocab):
                 outputs = model(input_ids=tokens_tensors, 
                                 token_type_ids=segments_tensors, 
                                 attention_mask=masks_tensors)
-                # loss = criti(predict_label_size(p,outputs),labels.float())
+                loss = criti(predict_label_size(p,outputs),labels.float())
                 # print(outputs.size())
-                loss = test_critition(predict_label_size(p,outputs),labels.float())
+                # loss = test_critition(predict_label_size(p,outputs),labels.float())
                 # backward
                 loss.backward()
                 optimizer.step()
@@ -65,7 +66,7 @@ def train(model,train_gen,p,vocab):
             running_loss = running_loss/len(train_gen)
             scheduler.step(running_loss)
             print('[epoch %d] loss: %.3f' %(epoch + 1, running_loss))
-            print(optimizer.state_dict()['param_groups'][0]['lr'])
+            print("lr(變動) : ",optimizer.state_dict()['param_groups'][0]['lr'])
             if running_loss < best_loss:
                 best_model = True
                 best_loss = running_loss
@@ -75,31 +76,32 @@ def train(model,train_gen,p,vocab):
             save_models(p,model,optimizer,epoch,running_loss,p.if_fine_tune,best_model)
                                             
         else:
-            
-            batch = next(train_gen)
-            batch_c +=1
-            input_tensor = batch.input_tensor.to(DEVICE)
-            labels = batch.label_tensor.to(DEVICE)
-            optimizer.zero_grad()
-            masks_tensors = torch.ones_like(input_tensor).to(DEVICE)
-            for bi,batch_data in enumerate(input_tensor):
-                    for wi,w in enumerate(batch_data):
-                        if w == 0:
-                            masks_tensors[bi][wi] = 0
-            outputs = model(input_ids=input_tensor, 
-                                attention_mask=masks_tensors)
+            prog_bar = tqdm(range(1, 5000+1))
+            for batch_count in prog_bar: 
+                batch = next(train_gen)
+                batch_c +=1
+                input_tensor = batch.input_tensor.to(DEVICE)
+                labels = batch.label_tensor.to(DEVICE)
+                optimizer.zero_grad()
+                masks_tensors = torch.ones_like(input_tensor).to(DEVICE)
+                for bi,batch_data in enumerate(input_tensor):
+                        for wi,w in enumerate(batch_data):
+                            if w == 0:
+                                masks_tensors[bi][wi] = 0
+                outputs = model(input_ids=input_tensor, 
+                                    attention_mask=masks_tensors)
 
-            loss = criti(predict_label_size(p,outputs),labels.float())
-            # backward
-            loss.backward()
-            optimizer.step()
-            
-            # 累計當前 batch loss
-            running_loss += loss.item()
+                loss = criti(predict_label_size(p,outputs),labels.float())
+                # backward
+                loss.backward()
+                optimizer.step()
+                
+                # 累計當前 batch loss
+                running_loss += loss.item()
             running_loss = running_loss/batch_c
             scheduler.step(running_loss)
             print('[epoch %d] loss: %.3f' %(epoch + 1, running_loss))
-
+            print("lr(變動) : ",optimizer.state_dict()['param_groups'][0]['lr'])
             if running_loss < best_loss:
                 best_model = True
                 best_loss = running_loss
@@ -122,7 +124,7 @@ def test(model,test_gen,p,vocab):
         
         acc,sum,recall,precision,pacc = 0,0,0,0,0
         if p.is_bert_model:
-            print("Test BERT+Bi-LSTM+MLP model ...")
+            print("Test BERT+MLP model ...")
             for data in tqdm(enumerate(test_gen),total=len(test_gen)):
                 tokens_tensors = data[1][0].to(DEVICE)
                 labels = data[1][1].to(DEVICE)
@@ -130,7 +132,7 @@ def test(model,test_gen,p,vocab):
                 masks_tensors = torch.ones_like(tokens_tensors).to(DEVICE)
                 for bi,batch_data in enumerate(tokens_tensors):
                     for wi,w in enumerate(batch_data):
-                        if w == 0:
+                        if w == 0 :
                             masks_tensors[bi][wi] = 0
                 # print(tokens_tensors[0])
 
@@ -140,50 +142,80 @@ def test(model,test_gen,p,vocab):
                                 attention_mask=masks_tensors)
                 
                 #將預測機率轉成label
+                outputs_prob = predict_label_size(p,outputs_prob)
+                for label_ind,labs in enumerate(labels):
+                    for index , lab in enumerate(labs):
+                        #確保不是cls,sep,pad
+                        if p.is_bert_model:
+                            if tokens_tensors[label_ind][index] != 101 or tokens_tensors[label_ind][index] != 102 or tokens_tensors[label_ind][index] != 0:
+                                sum += 1
+                                if outputs_prob[label_ind][index] >= 0.5 :
+                                    precision += 1
+                                    if lab == 1:
+                                        acc += 1
+                                        pacc+=1
+                                elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
+                                    acc += 1
+                                if lab == 1:
+                                    recall += 1 
+                        else:
+                            if input_tensor[label_ind][index] != 1 or input_tensor[label_ind][index] != 2 or input_tensor[label_ind][index] != 0:
+                                sum += 1
+                                if outputs_prob[label_ind][index] >= 0.5 :
+                                    precision += 1
+                                    if lab == 1:
+                                        acc += 1
+                                        pacc+=1
+                                elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
+                                    acc += 1
+                                if lab == 1:
+                                    recall += 1
                                            
         else:
             print("Test Embedding+Bi-LSTM+MLP model ...")
-            batch = next(test_gen)
-            
-            input_tensor = batch.input_tensor
-            labels = batch.label_tensor
-            
-            masks_tensors = torch.ones_like(input_tensor)
-            for bi,batch_data in enumerate(input_tensor):
-                    for wi,w in enumerate(batch_data):
-                        if w == 0:
-                            masks_tensors[bi][wi] = 0
-            outputs_prob = model(input_ids=input_tensor, 
-                                attention_mask=masks_tensors)
+            prog_bar = tqdm(range(1, 625+1))
+            for batch_count in prog_bar: 
+                batch = next(test_gen)
+                
+                input_tensor = batch.input_tensor.to(DEVICE)
+                labels = batch.label_tensor.to(DEVICE)
+                
+                masks_tensors = torch.ones_like(input_tensor).to(DEVICE)
+                for bi,batch_data in enumerate(input_tensor):
+                        for wi,w in enumerate(batch_data):
+                            if w == 0:
+                                masks_tensors[bi][wi] = 0
+                outputs_prob = model(input_ids=input_tensor, 
+                                    attention_mask=masks_tensors)
             # print(input_tensor.size(),labels.size(),outputs_prob.size())
-        outputs_prob = predict_label_size(p,outputs_prob)
-        for label_ind,labs in enumerate(labels):
-            for index , lab in enumerate(labs):
-                #確保不是cls,sep,pad
-                if p.is_bert_model:
-                    if tokens_tensors[label_ind][index] != 101 or tokens_tensors[label_ind][index] != 102 or tokens_tensors[label_ind][index] != 0:
-                        sum += 1
-                        if outputs_prob[label_ind][index] >= 0.5 :
-                            precision += 1
-                            if lab == 1:
-                                acc += 1
-                                pacc+=1
-                        elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
-                            acc += 1
-                        if lab == 1:
-                            recall += 1 
-                else:
-                    if input_tensor[label_ind][index] != 1 or input_tensor[label_ind][index] != 2 or input_tensor[label_ind][index] != 0:
-                        sum += 1
-                        if outputs_prob[label_ind][index] >= 0.5 :
-                            precision += 1
-                            if lab == 1:
-                                acc += 1
-                                pacc+=1
-                        elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
-                            acc += 1
-                        if lab == 1:
-                            recall += 1
+                outputs_prob = predict_label_size(p,outputs_prob)
+                for label_ind,labs in enumerate(labels):
+                    for index , lab in enumerate(labs):
+                        #確保不是cls,sep,pad
+                        if p.is_bert_model:
+                            if tokens_tensors[label_ind][index] != 101 or tokens_tensors[label_ind][index] != 102 or tokens_tensors[label_ind][index] != 0:
+                                sum += 1
+                                if outputs_prob[label_ind][index] >= 0.5 :
+                                    precision += 1
+                                    if lab == 1:
+                                        acc += 1
+                                        pacc+=1
+                                elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
+                                    acc += 1
+                                if lab == 1:
+                                    recall += 1 
+                        else:
+                            if input_tensor[label_ind][index] != 1 or input_tensor[label_ind][index] != 2 or input_tensor[label_ind][index] != 0:
+                                sum += 1
+                                if outputs_prob[label_ind][index] >= 0.5 :
+                                    precision += 1
+                                    if lab == 1:
+                                        acc += 1
+                                        pacc+=1
+                                elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
+                                    acc += 1
+                                if lab == 1:
+                                    recall += 1
         del model
     
     print("Test state : ")
@@ -215,15 +247,34 @@ def create_mini_batch(samples):
 
 def save_models(p, models,optimizer, epoch,loss,if_fine_tune,best_model):
     
+    
     if p.is_bert_model:
-        file_prefix = 'bert_tozhant'
+        file_prefix = 'bert_'
+        if p.if_multi:
+            file_prefix += 'multi_'
+        if p.bert_lstm_state:
+            file_prefix += 'bilstm_'
+        if p.is_attention_:
+            file_prefix += 'atten_'
+        if p.which_data_path:
+            file_prefix += 'LEC'
+        else:
+            file_prefix += 'big_corpus'
     else:
-        file_prefix = 'w2v+bilstm'
+        file_prefix = 'embedd_bilstm_'
+        if p.is_attention_:
+            file_prefix += 'atten_'
+        if p.which_data_path:
+            file_prefix += 'LEC'
+        else:
+            file_prefix += 'big_corpus'
+
     if not if_fine_tune:
         try:
             if best_model == True:#bert+bilstm_best_model
                 torch.save(models.state_dict(), p.model_path_prefix+file_prefix+'_best_model.pt')
-            torch.save(models.state_dict(), p.model_path_prefix+file_prefix+'_%.2f_epoch%d.pt'% (loss, (epoch+1)))
+            
+            # torch.save(models.state_dict(), p.model_path_prefix+file_prefix+'_%.2f_epoch%d.pt'% (loss, (epoch+1)))
         except Exception as e:
             print("Model saving failed.")
     else:
@@ -241,22 +292,30 @@ def save_models(p, models,optimizer, epoch,loss,if_fine_tune,best_model):
 if __name__ == "__main__":
 
     p = Params()
-        
-    dataset = Dataset(p.file_path)
-    vocab = dataset.build_vocab(p.vocab_size)
-
-    model = BertMLPModel(p.PRETRAINED_MODEL_NAME,vocab,num_labels=1)
-    train_data, test_data = train_test_split(dataset,random_state = 27, train_size=0.8)
-    # print(train_data[0],test_data[0])
     
+    if p.which_data_path:
+        dataset = Dataset(p.file_path)
+        vocab = dataset.build_vocab(p.vocab_size)
+        train_data, test_data = train_test_split(dataset,random_state = 27, train_size=0.8)
+        
+    else:
+        dataset = big_corpus_Dataset(p.big_corpus_filepath)
+        vocab = dataset.build_vocab(p.vocab_size)
+        train_data, test_data = train_test_split(dataset,random_state = 27, train_size=0.8)
+    # print(train_data[0],test_data[0])
+
+    model = BertMLPModel(p.PRETRAINED_MODEL_NAME,vocab,p.num_labels)
+
     if p.status == "train":
         #清除checkpoint 裡的模型參數檔
         if p.del_checkpoint:
             for f in os.listdir(p.model_path_prefix):
                 os.remove(os.path.join(p.model_path_prefix, f))
         if p.is_bert_model:
+            print("Train BERT(multi)+MLP model ...")
             train_gen = DataLoader(train_data,batch_size=p.batch_size,shuffle=True, pin_memory=True,collate_fn=create_mini_batch)
         else:
+            print("Train embedding+Bi-LSTM+MLP model ...")
             train_gen = dataset.generator(train_data,p.batch_size, vocab)
         train(model,train_gen,p,vocab)
     else:

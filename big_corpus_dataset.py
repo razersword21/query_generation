@@ -89,7 +89,6 @@ class Vocab(object):
       return False
     return True
     
-
 class OOVDict(object):
 
   def __init__(self, base_oov_idx):
@@ -110,7 +109,6 @@ class OOVDict(object):
     self.ext_vocab_size = max(self.ext_vocab_size, index + 1)
     return index
 
-
 class Example(NamedTuple):
   src: List[str]
   tgt: List[str]
@@ -123,12 +121,9 @@ class Batch(NamedTuple):
   label_tensor: Optional[torch.Tensor]
   input_lengths: Optional[List[int]]
  
-
-  
-
-class Dataset(object):
+class big_corpus_Dataset(object):
   def __init__(self, filename: str):
-    super(Dataset, self).__init__()
+    super(big_corpus_Dataset, self).__init__()
     self.p = Params()
     self.tokenizer = BertTokenizer.from_pretrained(self.p.PRETRAINED_MODEL_NAME)
     
@@ -136,85 +131,79 @@ class Dataset(object):
     self.tgt_len = 0
     self.pairs = []
     
-    self.filename = filename
+    self.filename = filename#f = open('text.txt', 'r')
+
     print("Reading dataset %s..." % filename, end=' ', flush=True)
     print("")
     num_lines = sum(1 for line in open(filename,'r',encoding="utf-8"))
     with open(filename,encoding="utf-8") as f:
       
       for i, line in tqdm(enumerate(f),total= num_lines):
-        if i == 500:
+        if i == 500000:
           break
         word_pieces = ["[CLS]"]
         
         temp_list = line.split("\t")#strip()
-        title = temp_list[1]
+        delblank = []
+        for i in temp_list:
+          if i != '':
+            delblank.append(i)
         
-        # print(title)
-        label = temp_list[-1]
+        title = delblank[0].strip()
+        label = delblank[1].strip()
         
-        blank_list = title.split(" ")
-        label = label.split(" ")
-        label = list(map(float, label))
+        # blank_list = title.split(" ")
+        # label = label.split(" ")
+        # label = list(map(float, label))
       
         # for index , bi_word in enumerate(blank_list):
         #   for t in bi_word:
         #     if not '\u4e00' <= t <= '\u9fff':
         #       self.tokenizer.add_tokens(t)           
-
+        # print("delblank",delblank)
         if self.p.is_bert_model:
           new_label = []
           title = convertor(title)
+          label = convertor(label)
           title = self.tokenizer.tokenize(title)
+          label = self.tokenizer.tokenize(label)
+        #   print("title",title,label)
           word_pieces += title + ["[SEP]"]
           title_ids = self.tokenizer.convert_tokens_to_ids(word_pieces)
           title_ids = torch.tensor(title_ids)
           # new_label.append(0)
-          for index , wordphrase in enumerate(blank_list):
-            for w in self.tokenizer.tokenize(wordphrase):
-              if label[index] > 0:
-                new_label.append(1)
-              else:
-                new_label.append(0)
+
+          for index , wordphrase in enumerate(title):
+            if wordphrase in label:
+              new_label.append(1)
+            else:
+              new_label.append(0)
           # new_label.append(0)
-          label = torch.tensor(new_label)
+          newlabel = torch.tensor(new_label)
           # print(word_pieces,label)
           src_len = len(title_ids)  # +sep or +eos
-          tgt_len = len(label)
+          tgt_len = len(newlabel)
           self.src_len = max(self.src_len, src_len)
           self.tgt_len = max(self.tgt_len, tgt_len)
           
-          self.pairs.append(Example(title_ids, label, src_len, tgt_len))
+          self.pairs.append(Example(title_ids, newlabel, src_len, tgt_len))
         else:
           sos = []
-          product_title = ""
-          for bw in blank_list:
-            product_title+=bw
-          product_title = convertor(product_title)
+          product_title = convertor(title)
+          label = convertor(label)
           # print(product_title)
-          titledelblank = jieba.lcut(product_title,cut_all=True)
-          for tw in titledelblank:
+          titlejiebatoken = jieba.lcut(product_title,cut_all=True)
+          labeljiebatoken = jieba.lcut(label ,cut_all=True)
+          for tw in titlejiebatoken:
             tw = tw.strip()
             sos += [tw]
-          
-          #sos               '<sos> topman', '男', '秋季', '時', '尚', '迷彩', '彩印', '印花', '長', '袖', '休', '閒', '百', '搭', '夾', '克', '外套', 'pmul'
-          #hant_blank_list           topman 男 秋季 时尚 迷彩 印花 长袖 休闲百搭 夹克 外套 pmul
-          #                             0    1   0   1   0    1    0    1      0    1    0
-          hant_blank_list = []
-          for index , wordphrase in enumerate(blank_list):
-            wordphrase = convertor(wordphrase)
-            hant_blank_list.append(wordphrase)
-          
-          new_label = torch.zeros(len(sos))
-          
-          for si,s in enumerate(sos):
-            for wi,w in enumerate(hant_blank_list):
-              if s in w:
-                # print(s)
-                new_label[si] = label[wi]
-                # wordphrase_label_c+=1
-          # print(sos,hant_blank_list,new_label)
-                
+          new_label = []
+          for ttw in sos:
+            if ttw in labeljiebatoken:
+                new_label.append(1)
+            else:
+              new_label.append(0)
+        
           label = torch.tensor(new_label)
           src_len = len(sos)  # +sep or +eos
           tgt_len = len(label)
@@ -313,6 +302,4 @@ class Dataset(object):
 
 # if __name__ == "__main__":
 #    p = Params()
-#    Dataset(p.file_path)
-
-
+#    big_corpus_Dataset(p.big_corpus_filepath)

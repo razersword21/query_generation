@@ -24,9 +24,9 @@ class selfattention(nn.Module):
     def __init__(self):
         super(selfattention, self).__init__()
         self.p = Params()
-        self.q_w = nn.Linear(self.p.hidden_size,self.p.attention_hidden)
-        self.k_w = nn.Linear(self.p.hidden_size,self.p.attention_hidden)
-        self.v_w = nn.Linear(self.p.hidden_size,self.p.attention_hidden)
+        self.q_w = nn.Linear(self.p.attention_hidden,self.p.attention_hidden)
+        self.k_w = nn.Linear(self.p.attention_hidden,self.p.attention_hidden)
+        self.v_w = nn.Linear(self.p.attention_hidden,self.p.attention_hidden)
         self.softmax = nn.Softmax(-1)
 
     def forward(self,input,attention_mask):
@@ -51,7 +51,7 @@ class BertMLPModel(nn.Module):
         self.p = Params()
         self.num_labels = num_labels
         self.vocab = vocab
-        # self.vocab_size = len(vocab)
+        self.vocab_size = len(vocab)
         if self.p.is_bert_model:
             # configuration = BertConfig(num_labels=1)
             self.bert = BertModel.from_pretrained(PRETRAINED_MODEL_NAM)  # 載入預訓練 BERT
@@ -60,7 +60,7 @@ class BertMLPModel(nn.Module):
             self.embedding = nn.Embedding(self.vocab_size, self.p.hidden_size, padding_idx=vocab.PAD)
         self.bilstm = BiLSTM(self.p.hidden_size,self.p.lstm_hidden,self.p.num_layers)
         self.dropout = nn.Dropout(self.p.hidden_dropout_prob)
-        self.BatchNormlayer = nn.BatchNorm1d(self.p.mlp_hidden)
+        # self.BatchNormlayer = nn.BatchNorm1d(self.p.mlp_hidden)
         self.selfattention = selfattention()
         
         # 簡單 linear 層
@@ -74,24 +74,47 @@ class BertMLPModel(nn.Module):
         if self.p.is_bert_model:
             outputs = self.bert(input_ids, token_type_ids, attention_mask)
             hidden_state = outputs.last_hidden_state
+            # lstm_out,_,_ = self.bilstm(hidden_state)
+            
+            if self.p.is_attention_:
+                if self.p.bert_lstm_state:
+                    lstm_out,_,_ = self.bilstm(hidden_state)
+                else:
+                    lstm_out = self.dropout(hidden_state)
+                atten_out,_ = self.selfattention(lstm_out,attention_mask)
+                atten_drop_out = self.dropout(atten_out)
+                logits = self.mlp(atten_drop_out)
+            # bn_out = self.BatchNormlayer(lstm_out)
+            # bn_out = bn_out.transpose(1,2)
+            else:
+                if self.p.bert_lstm_state:
+                    drop_out,_,_ = self.bilstm(hidden_state)
+                else:
+                    drop_out = self.dropout(hidden_state)
+                logits = self.mlp(drop_out)
+            
+            predict_label = self.sigmoid(logits)
+
         else:
             hidden_state = self.embedding(input_ids)
+            drop_out = self.dropout(hidden_state)
         # print("BERT model output size...",hidden_state.size())#[batch size,seq len,bert embedd(768)]
-        # lstm_out,_,_ = self.bilstm(hidden_state)
+            lstm_out,_,_ = self.bilstm(drop_out)
         # 轉成字要不要留下來的機率值
         # lstm_out = lstm_out.transpose(1,2)
         # print("Bi-LSTM model output size...",lstm_out.size())#[batch size,seq len,2*lstm embedd]
-        drop_out = self.dropout(hidden_state)
-        if self.p.is_attention_:
-            atten_out,_ = self.selfattention(drop_out,attention_mask)
-            # lstm_out,_ = self.selfattention(lstm_out,attention_mask)
-            logits = self.mlp(atten_out)
-        # bn_out = self.BatchNormlayer(lstm_out)
-        # bn_out = bn_out.transpose(1,2)
-        else:
-            logits = self.mlp(drop_out)
-        
-        predict_label = self.sigmoid(logits)
+            # drop_out = self.dropout(hidden_state)
+            if self.p.is_attention_:
+                atten_out,_ = self.selfattention(lstm_out,attention_mask)
+                # lstm_out,_ = self.selfattention(lstm_out,attention_mask)
+                atten_drop_out = self.dropout(atten_out)
+                logits = self.mlp(atten_drop_out)
+            # bn_out = self.BatchNormlayer(lstm_out)
+            # bn_out = bn_out.transpose(1,2)
+            else:
+                logits = self.mlp(lstm_out)
+            
+            predict_label = self.sigmoid(logits)
         
         # print("predict_label prob output size...",predict_label.size(),labels.size())#[batch size,seq len,label]
         # 回傳各個字的 predict_label 機率值
