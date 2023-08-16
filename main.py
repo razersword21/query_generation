@@ -27,7 +27,7 @@ def train(model,train_gen,p,vocab):
     
     # 使用 Adam Optim 更新整個分類模型的參數
     optimizer = torch.optim.Adam(model.parameters(), p.lr)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min')
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min',patience=2,verbose=True)
     
     criti = nn.BCELoss()
     best_loss = 99.9
@@ -66,7 +66,7 @@ def train(model,train_gen,p,vocab):
             running_loss = running_loss/len(train_gen)
             scheduler.step(running_loss)
             print('[epoch %d] loss: %.3f' %(epoch + 1, running_loss))
-            print("lr(變動) : ",optimizer.state_dict()['param_groups'][0]['lr'])
+            # print("lr(變動) : ",optimizer.state_dict()['param_groups'][0]['lr'])
             if running_loss < best_loss:
                 best_model = True
                 best_loss = running_loss
@@ -124,7 +124,7 @@ def test(model,test_gen,p,vocab):
         
         acc,sum,recall,precision,pacc = 0,0,0,0,0
         if p.is_bert_model:
-            print("Test BERT+MLP model ...")
+            print("Test "+p.model_PATH+" model ...")
             for data in tqdm(enumerate(test_gen),total=len(test_gen)):
                 tokens_tensors = data[1][0].to(DEVICE)
                 labels = data[1][1].to(DEVICE)
@@ -154,6 +154,7 @@ def test(model,test_gen,p,vocab):
                                     if lab == 1:
                                         acc += 1
                                         pacc+=1
+                                        
                                 elif outputs_prob[label_ind][index] < 0.5 and lab == 0:
                                     acc += 1
                                 if lab == 1:
@@ -220,7 +221,7 @@ def test(model,test_gen,p,vocab):
     
     print("Test state : ")
     print("Accuracy : %.2f %%" % ((acc / sum *100) ,))
-    # print(acc , sum)
+    print(pacc , precision,acc)
     r = (pacc / recall *100)
     p = (pacc / precision *100)
     print("F1-score : %.2f %%" % ((2*p*r/(p+r)),) )
@@ -247,7 +248,6 @@ def create_mini_batch(samples):
 
 def save_models(p, models,optimizer, epoch,loss,if_fine_tune,best_model):
     
-    
     if p.is_bert_model:
         file_prefix = 'bert_'
         if p.if_multi:
@@ -273,7 +273,6 @@ def save_models(p, models,optimizer, epoch,loss,if_fine_tune,best_model):
         try:
             if best_model == True:#bert+bilstm_best_model
                 torch.save(models.state_dict(), p.model_path_prefix+file_prefix+'_best_model.pt')
-            
             # torch.save(models.state_dict(), p.model_path_prefix+file_prefix+'_%.2f_epoch%d.pt'% (loss, (epoch+1)))
         except Exception as e:
             print("Model saving failed.")
@@ -299,7 +298,7 @@ if __name__ == "__main__":
         train_data, test_data = train_test_split(dataset,random_state = 27, train_size=0.8)
         
     else:
-        dataset = big_corpus_Dataset(p.big_corpus_filepath)
+        dataset = big_corpus_Dataset(p.file_path)
         vocab = dataset.build_vocab(p.vocab_size)
         train_data, test_data = train_test_split(dataset,random_state = 27, train_size=0.8)
     # print(train_data[0],test_data[0])

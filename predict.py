@@ -7,6 +7,32 @@ from tqdm import tqdm
 import pandas as pd
 from dataset import Dataset
 import jieba
+import os
+import pickle
+
+def build_vocab(p,vocab_size):
+    filename, _ = os.path.splitext(p.file_path)
+    vocab = None
+    if p.is_bert_model:
+        if p.if_multi:
+            filename += '_multi.vocab'
+        else:
+            filename += '.vocab'
+        if os.path.isfile(filename):
+            with open(filename, 'rb') as f:
+                vocab = pickle.load(f)
+            print(filename," Vocabulary loaded..., %d words." % len(vocab))
+            f.close()
+        return vocab
+    else:
+        filename, _ = os.path.splitext(p.file_path)
+        if vocab_size:
+            filename += ".%d" % vocab_size
+            filename += '.vocab'
+        if os.path.isfile(filename):
+            vocab = torch.load(filename)
+            print("Vocabulary loaded, %d words." % len(vocab))    
+        return vocab
 
 def rad_csv(file_name):
     spenotation = "】【|(-/)）（"
@@ -125,23 +151,36 @@ def query_generator(p,token_title_ids,v,title_list,token_title):
                 # print(len(predict_prob),len(token_title[token_title_index]),token_title[token_title_index])
                 # print(title_list[token_title_index])
                 # print("**",eng_token_list,"**",eng_index,"**",token_title[token_title_index])
-                for index , prob in enumerate(predict_prob):
-                    if index == 0:
-                        continue
-                    elif index == (len(predict_prob)-1):
-                        continue
-                    else:
-                        # print(index)
-                        if token_title[token_title_index][index] != '[UNK]':
-                            if prob >= 0.5:
-                                shorter_title += token_title[token_title_index][index]
+                if p.if_multi:
+                    for index , prob in enumerate(predict_prob):
+                        if index == 0:
+                            continue
+                        elif index == (len(predict_prob)-1):
+                            continue
                         else:
-                            if prob >= 0.5:
-                                shorter_title += eng_token_list[eng_index]
-                            eng_index+=1
+                            # print(index)
+                            if token_title[token_title_index][index] != '[UNK]':
+                                if prob >= 0.5:
+                                    shorter_title += token_title[token_title_index][index]
+                    shorter_title_list.append(shorter_title)
+                else:
+                    for index , prob in enumerate(predict_prob):
+                        if index == 0:
+                            continue
+                        elif index == (len(predict_prob)-1):
+                            continue
+                        else:
+                            # print(index)
+                            if token_title[token_title_index][index] != '[UNK]':
+                                if prob >= 0.5:
+                                    shorter_title += token_title[token_title_index][index]
+                            else:
+                                if prob >= 0.5:
+                                    shorter_title += eng_token_list[eng_index]
+                                eng_index+=1
                                 
-                # print(shorter_title)
-                shorter_title_list.append(shorter_title)
+                    # print(shorter_title)
+                    shorter_title_list.append(shorter_title)
         
     else:
         model = BertMLPModel(p.PRETRAINED_MODEL_NAME,v,num_labels=1)
@@ -184,8 +223,8 @@ def query_generator(p,token_title_ids,v,title_list,token_title):
 if __name__ == "__main__":
 
     p = Params()
-    dataset = Dataset(p.file_path)
-    vocab = dataset.build_vocab(p.vocab_size)
+    
+    vocab = build_vocab(p,p.vocab_size)
     # vocab = None
     title_list,query_list = rad_csv(p.file_name)
     
@@ -199,4 +238,4 @@ if __name__ == "__main__":
         "query" : query_list,
         "compress result" : shorter_title_list
     })
-    my_df.to_csv('(Bert)comperss result.csv', columns=columns,index=False, header=False,encoding="utf_8_sig")
+    my_df.to_csv('(bert_multi_bigcorpus)comperss_result.csv', columns=columns,index=False, header=False,encoding="utf_8_sig")

@@ -143,7 +143,7 @@ class Dataset(object):
     with open(filename,encoding="utf-8") as f:
       
       for i, line in tqdm(enumerate(f),total= num_lines):
-        if i == 500:
+        if i == 50000:
           break
         word_pieces = ["[CLS]"]
         
